@@ -12,6 +12,7 @@ import {
   ValidatingToolCall,
   WaitingToolCall,
   AwaitingUserInputToolCall,
+  AwaitingQuestionResponseToolCall,
   CompletedToolCall,
   CancelledToolCall,
   CoreToolScheduler,
@@ -50,6 +51,9 @@ export type TrackedWaitingToolCall = WaitingToolCall & {
 export type TrackedAwaitingUserInputToolCall = AwaitingUserInputToolCall & {
   responseSubmittedToGemini?: boolean;
 };
+export type TrackedAwaitingQuestionResponseToolCall = AwaitingQuestionResponseToolCall & {
+  responseSubmittedToGemini?: boolean;
+};
 export type TrackedExecutingToolCall = ExecutingToolCall & {
   responseSubmittedToGemini?: boolean;
 };
@@ -65,6 +69,7 @@ export type TrackedToolCall =
   | TrackedValidatingToolCall
   | TrackedWaitingToolCall
   | TrackedAwaitingUserInputToolCall
+  | TrackedAwaitingQuestionResponseToolCall
   | TrackedExecutingToolCall
   | TrackedCompletedToolCall
   | TrackedCancelledToolCall;
@@ -76,7 +81,7 @@ export function useReactToolScheduler(
     React.SetStateAction<HistoryItemWithoutId | null>
   >,
   getPreferredEditor: () => EditorType | undefined,
-): [TrackedToolCall[], ScheduleFn, MarkToolsAsSubmittedFn, HandleUserInputFn] {
+): [TrackedToolCall[], ScheduleFn, MarkToolsAsSubmittedFn, HandleUserInputFn, HandleUserInputFn] {
   const [toolCallsForDisplay, setToolCallsForDisplay] = useState<
     TrackedToolCall[]
   >([]);
@@ -189,7 +194,16 @@ export function useReactToolScheduler(
     [scheduler],
   );
 
-  return [toolCallsForDisplay, schedule, markToolsAsSubmitted, handleUserInput];
+  const handleQuestionResponse: HandleUserInputFn = useCallback(
+    async (callId: string, userAnswer: string) => {
+      console.log('[ENTER-DEBUG] React.handleQuestionResponse START:', { callId });
+      await scheduler.handleQuestionResponse(callId, userAnswer);
+      console.log('[ENTER-DEBUG] React.handleQuestionResponse DONE:', { callId });
+    },
+    [scheduler],
+  );
+
+  return [toolCallsForDisplay, schedule, markToolsAsSubmitted, handleUserInput, handleQuestionResponse];
 }
 
 /**
@@ -203,6 +217,8 @@ function mapCoreStatusToDisplayStatus(coreStatus: CoreStatus): ToolCallStatus {
       return ToolCallStatus.Confirming;
     case 'awaiting_user_input':
       return ToolCallStatus.AwaitingUserInput;
+    case 'awaiting_question_response':
+      return ToolCallStatus.Confirming;
     case 'executing':
       return ToolCallStatus.Executing;
     case 'success':
@@ -298,6 +314,14 @@ export function mapToDisplay(
             resultDisplay: undefined,
             confirmationDetails: undefined,
             uiComponents: (trackedCall as TrackedAwaitingUserInputToolCall).uiComponents,
+          };
+        case 'awaiting_question_response':
+          return {
+            ...baseDisplayProperties,
+            status: mapCoreStatusToDisplayStatus(trackedCall.status),
+            resultDisplay: undefined,
+            confirmationDetails: undefined,
+            uiComponents: (trackedCall as TrackedAwaitingQuestionResponseToolCall).promptDetails.uiComponents,
           };
         case 'executing':
           return {

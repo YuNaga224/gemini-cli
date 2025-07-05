@@ -135,7 +135,7 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
               }}
               allowCustomInput={uiComponents.allowCustomInput || false}
               customInputPlaceholder={uiComponents.placeholder}
-              isFocused={isFocused && status === ToolCallStatus.AwaitingUserInput}
+              isFocused={isFocused && (status === ToolCallStatus.AwaitingUserInput || (status === ToolCallStatus.Confirming && uiComponents?.type === 'question-selector'))}
             />
           </Box>
         </Box>

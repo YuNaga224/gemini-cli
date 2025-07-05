@@ -411,6 +411,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
     pendingHistoryItems: pendingGeminiHistoryItems,
     thought,
     handleUserInput,
+    handleQuestionResponse,
     toolCalls,
   } = useGeminiStream(
     config.getGeminiClient(),
@@ -442,7 +443,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
 
   // 質問選択UIが表示されているかどうかをチェック
   const hasAwaitingUserInputTool = toolCalls.some(
-    (tool) => tool.status === 'awaiting_user_input'
+    (tool) => tool.status === 'awaiting_user_input' || tool.status === 'awaiting_question_response'
   );
 
   // 教育ツールの質問選択処理
@@ -464,12 +465,33 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
           (tool) => tool.status === 'awaiting_user_input'
         );
         
-        console.log('[DEBUG] Found awaiting tool:', { 
-          found: !!awaitingInputTool, 
-          callId: awaitingInputTool?.request.callId 
+        // 質問回答を待機しているツールを探す
+        const awaitingQuestionTool = toolCalls.find(
+          (tool) => tool.status === 'awaiting_question_response'
+        );
+        
+        console.log('[DEBUG] Found awaiting tools:', { 
+          awaitingInput: !!awaitingInputTool, 
+          awaitingQuestion: !!awaitingQuestionTool,
+          inputCallId: awaitingInputTool?.request.callId,
+          questionCallId: awaitingQuestionTool?.request.callId 
         });
         
-        if (awaitingInputTool) {
+        if (awaitingQuestionTool) {
+          // 質問ツールのhandleQuestionResponseを呼び出す
+          console.log('[DEBUG] Calling handleQuestionResponse:', { 
+            callId: awaitingQuestionTool.request.callId, 
+            answer 
+          });
+          try {
+            await handleQuestionResponse?.(awaitingQuestionTool.request.callId, answer);
+            console.log('[DEBUG] handleQuestionResponse succeeded');
+          } catch (error) {
+            console.error('[DEBUG] handleQuestionResponse failed:', error);
+            // Core側でツールが見つからない場合は通常の入力として処理
+            submitQuery(answer);
+          }
+        } else if (awaitingInputTool) {
           // ツールのhandleUserInputを呼び出す
           console.log('[DEBUG] Calling handleUserInput:', { 
             callId: awaitingInputTool.request.callId, 
@@ -492,7 +514,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
         setIsHandlingUserInput(false);
       }
     },
-    [toolCalls, handleUserInput, submitQuery, isHandlingUserInput],
+    [toolCalls, handleUserInput, handleQuestionResponse, submitQuery, isHandlingUserInput],
   );
 
   const logger = useLogger();
