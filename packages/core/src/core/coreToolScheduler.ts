@@ -10,6 +10,7 @@ import {
   ToolConfirmationOutcome,
   Tool,
   ToolCallConfirmationDetails,
+  ToolCallPromptDetails,
   ToolResult,
   ToolUIComponents,
   ToolRegistry,
@@ -97,6 +98,15 @@ export type AwaitingUserInputToolCall = {
   outcome?: ToolConfirmationOutcome;
 };
 
+export type AwaitingQuestionResponseToolCall = {
+  status: 'awaiting_question_response';
+  request: ToolCallRequestInfo;
+  tool: Tool;
+  promptDetails: ToolCallPromptDetails;
+  startTime?: number;
+  outcome?: ToolConfirmationOutcome;
+};
+
 export type Status = ToolCall['status'];
 
 /**
@@ -114,7 +124,8 @@ const NON_TERMINAL_STATES: Status[] = [
   'scheduled', 
   'executing',
   'awaiting_approval',
-  'awaiting_user_input'
+  'awaiting_user_input',
+  'awaiting_question_response'
 ];
 
 export type ToolCall =
@@ -125,7 +136,8 @@ export type ToolCall =
   | ExecutingToolCall
   | CancelledToolCall
   | WaitingToolCall
-  | AwaitingUserInputToolCall;
+  | AwaitingUserInputToolCall
+  | AwaitingQuestionResponseToolCall;
 
 export type CompletedToolCall =
   | SuccessfulToolCall
@@ -288,6 +300,11 @@ export class CoreToolScheduler {
   ): void;
   private setStatusInternal(
     targetCallId: string,
+    status: 'awaiting_question_response',
+    promptDetails: ToolCallPromptDetails,
+  ): void;
+  private setStatusInternal(
+    targetCallId: string,
     status: 'error',
     response: ToolCallResponseInfo,
   ): void;
@@ -380,6 +397,15 @@ export class CoreToolScheduler {
             startTime: existingStartTime,
             outcome,
           } as AwaitingUserInputToolCall;
+        case 'awaiting_question_response':
+          return {
+            request: currentCall.request,
+            tool: toolInstance,
+            status: 'awaiting_question_response',
+            promptDetails: auxiliaryData as ToolCallPromptDetails,
+            startTime: existingStartTime,
+            outcome,
+          } as AwaitingQuestionResponseToolCall;
         case 'scheduled':
           return {
             request: currentCall.request,
@@ -529,7 +555,27 @@ export class CoreToolScheduler {
               wrappedConfirmationDetails,
             );
           } else {
-            this.setStatusInternal(reqInfo.callId, 'scheduled');
+            // Check if tool needs user prompt (for questions, etc.)
+            const promptDetails = await toolInstance.shouldPromptUser?.(
+              reqInfo.args,
+              signal,
+            );
+
+            if (promptDetails) {
+              const wrappedPromptDetails: ToolCallPromptDetails = {
+                ...promptDetails,
+                onUserResponse: async (userAnswer: string) => {
+                  await this.handleQuestionResponse(reqInfo.callId, userAnswer);
+                },
+              };
+              this.setStatusInternal(
+                reqInfo.callId,
+                'awaiting_question_response',
+                wrappedPromptDetails,
+              );
+            } else {
+              this.setStatusInternal(reqInfo.callId, 'scheduled');
+            }
           }
         }
       } catch (error) {
@@ -730,8 +776,89 @@ export class CoreToolScheduler {
   }
 
   private notifyToolCallsUpdate(): void {
+    console.log('[ENTER-DEBUG] notifyToolCallsUpdate called with tools:', 
+      this.toolCalls.map(call => ({ callId: call.request.callId, status: call.status })));
     if (this.onToolCallsUpdate) {
       this.onToolCallsUpdate([...this.toolCalls]);
+    }
+  }
+
+  /**
+   * Handle user response for a tool call that is awaiting question response.
+   * This method should only be called when a tool is in 'awaiting_question_response' state.
+   * @param callId The ID of the tool call awaiting question response
+   * @param userAnswer The answer provided by the user
+   */
+  async handleQuestionResponse(callId: string, userAnswer: string): Promise<void> {
+    console.log('[ENTER-DEBUG] Core.handleQuestionResponse called:', { callId, userAnswer });
+    
+    const allToolCalls = this.toolCalls.map(call => ({ 
+      callId: call.request.callId, 
+      status: call.status 
+    }));
+    console.log('[ENTER-DEBUG] Current tool states:', allToolCalls);
+    
+    const toolCall = this.toolCalls.find(
+      (call) => call.request.callId === callId && call.status === 'awaiting_question_response',
+    );
+
+    if (!toolCall || toolCall.status !== 'awaiting_question_response') {
+      console.warn(`[ENTER-DEBUG] Tool call ${callId} is not awaiting question response. Found tool:`, 
+        toolCall ? { callId: toolCall.request.callId, status: toolCall.status } : 'NOT_FOUND');
+      throw new Error(`Tool call ${callId} is not awaiting question response. Current status: ${toolCall?.status || 'NOT_FOUND'}`);
+    }
+
+    const awaitingQuestionCall = toolCall as AwaitingQuestionResponseToolCall;
+    try {
+      console.log('[ENTER-DEBUG] Core.handleQuestionResponse processing user answer...');
+      
+      // onUserResponse ハンドラーを呼び出す
+      await awaitingQuestionCall.promptDetails.onUserResponse(userAnswer);
+      
+      // 質問生成ツールの場合、ユーザーの回答を処理する
+      let toolResult: ToolResult;
+      if ('handleUserAnswer' in awaitingQuestionCall.tool) {
+        // 質問生成ツール固有の処理
+        const questionTool = awaitingQuestionCall.tool as any;
+        const questionData = awaitingQuestionCall.promptDetails.questionData;
+        const originalParams = awaitingQuestionCall.promptDetails.originalParams;
+        toolResult = await questionTool.handleUserAnswer(userAnswer, questionData, originalParams);
+      } else {
+        // 通常のツール実行
+        toolResult = await awaitingQuestionCall.tool.execute(
+          awaitingQuestionCall.request.args,
+          new AbortController().signal,
+          undefined
+        );
+      }
+      
+      console.log('[ENTER-DEBUG] Core.handleQuestionResponse got result, setting to success');
+      
+      const response = convertToFunctionResponse(
+        awaitingQuestionCall.request.name,
+        callId,
+        toolResult.llmContent,
+      );
+
+      const successResponse: ToolCallResponseInfo = {
+        callId,
+        responseParts: response,
+        resultDisplay: toolResult.returnDisplay,
+        error: undefined,
+        uiComponents: toolResult.uiComponents,
+      };
+      
+      this.setStatusInternal(callId, 'success', successResponse);
+      console.log('[ENTER-DEBUG] Core.handleQuestionResponse completed successfully');
+    } catch (error) {
+      this.setStatusInternal(
+        callId,
+        'error',
+        createErrorResponse(
+          awaitingQuestionCall.request,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
     }
   }
 

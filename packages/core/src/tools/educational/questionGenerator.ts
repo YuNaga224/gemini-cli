@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BaseTool, ToolResult } from '../tools.js';
+import { BaseTool, ToolResult, ToolCallPromptDetails } from '../tools.js';
 import { Config } from '../../config/config.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { SchemaValidator } from '../../utils/schemaValidator.js';
@@ -199,14 +199,84 @@ export class QuestionGeneratorTool extends BaseTool<
     };
   }
 
-  async execute(
+  async shouldPromptUser(
     params: QuestionGenerationParams,
-    signal?: AbortSignal
-  ): Promise<QuestionGenerationToolResult> {
+    abortSignal: AbortSignal,
+  ): Promise<ToolCallPromptDetails | false> {
+    if (this.validateToolParams(params)) {
+      return false; // パラメータ検証に失敗した場合はプロンプトを表示しない
+    }
+
     try {
       let questionData: QuestionGenerationResult;
 
       // 適応的質問生成を優先的に使用
+      if (this.useAdaptiveMode) {
+        try {
+          questionData = await this.generateAdaptiveQuestion(params, abortSignal);
+        } catch (adaptiveError) {
+          console.warn('Adaptive question generation failed, falling back to standard method:', adaptiveError);
+          questionData = await this.generateQuestionWithGeminiAPI(params, abortSignal);
+        }
+      } else {
+        // 従来の方法
+        questionData = await this.generateQuestionWithGeminiAPI(params, abortSignal);
+      }
+
+      // 質問プロンプトの詳細を返す
+      const promptDetails: ToolCallPromptDetails = {
+        type: 'question',
+        title: `Learning Question - ${params.phase === 'discovery' ? 'Discovery' : 'Assessment'}`,
+        onUserResponse: async (userAnswer: string) => {
+          // ユーザー回答の処理をここで行う
+          return;
+        },
+        uiComponents: {
+          type: 'question-selector',
+          question: questionData.question,
+          options: questionData.suggestedOptions,
+          allowCustomInput: questionData.type === 'discovery',
+          placeholder: questionData.type === 'discovery' ? 'その他（自由入力）' : undefined,
+        },
+        questionData,
+        originalParams: params,
+      };
+
+      return promptDetails;
+    } catch (error) {
+      const errorMessage = `Failed to generate question: ${getErrorMessage(error)}`;
+      const fallbackQuestionData = this.generateFallbackQuestion(params);
+      
+      const promptDetails: ToolCallPromptDetails = {
+        type: 'question',
+        title: 'Learning Question - Error',
+        onUserResponse: async (userAnswer: string) => {
+          return;
+        },
+        uiComponents: {
+          type: 'question-selector',
+          question: 'エラーが発生しました。基本的な質問を表示します。',
+          options: ['続行する', 'やり直す'],
+          allowCustomInput: false,
+        },
+        questionData: fallbackQuestionData,
+        originalParams: params,
+      };
+
+      return promptDetails;
+    }
+  }
+
+  async execute(
+    params: QuestionGenerationParams,
+    signal: AbortSignal,
+    updateOutput?: (output: string) => void
+  ): Promise<QuestionGenerationToolResult> {
+    // executeメソッドでは質問生成のみを行う
+    // ユーザーの回答処理は handleQuestionResponse で行われる
+    try {
+      let questionData: QuestionGenerationResult;
+
       if (this.useAdaptiveMode) {
         try {
           questionData = await this.generateAdaptiveQuestion(params, signal);
@@ -215,25 +285,13 @@ export class QuestionGeneratorTool extends BaseTool<
           questionData = await this.generateQuestionWithGeminiAPI(params, signal);
         }
       } else {
-        // 従来の方法
         questionData = await this.generateQuestionWithGeminiAPI(params, signal);
       }
       
       return {
-        llmContent: [{ text: `Generated question: ${questionData.question}` }],
+        llmContent: [{ text: `Generated question: ${questionData.question}\n\nOptions:\n${questionData.suggestedOptions.map((option, index) => `${index + 1}. ${option}`).join('\n')}` }],
         returnDisplay: `Question: ${questionData.question}\nOptions: ${questionData.suggestedOptions.join(', ')}`,
         questionData,
-        uiComponents: {
-          type: 'question-selector',
-          question: questionData.question,
-          options: questionData.suggestedOptions,
-          allowCustomInput: questionData.type === 'discovery', // 深堀りフェーズのみ自由入力を許可
-          placeholder: questionData.type === 'discovery' ? 'その他（自由入力）' : undefined,
-        },
-        awaitingUserInput: true,
-        onUserInput: async (userAnswer: string) => {
-          return this.handleUserAnswer(userAnswer, questionData, params);
-        },
       };
     } catch (error) {
       const errorMessage = `Failed to generate question: ${getErrorMessage(error)}`;
@@ -242,16 +300,6 @@ export class QuestionGeneratorTool extends BaseTool<
         llmContent: [{ text: `Error: ${errorMessage}` }],
         returnDisplay: `Error: ${errorMessage}`,
         questionData: fallbackQuestionData,
-        uiComponents: {
-          type: 'question-selector',
-          question: 'エラーが発生しました。基本的な質問を表示します。',
-          options: ['続行する', 'やり直す'],
-          allowCustomInput: false,
-        },
-        awaitingUserInput: true,
-        onUserInput: async (userAnswer: string) => {
-          return this.handleUserAnswer(userAnswer, fallbackQuestionData, params);
-        },
       };
     }
   }
@@ -297,7 +345,7 @@ export class QuestionGeneratorTool extends BaseTool<
    * 質問データのみを取得するヘルパーメソッド
    */
   async getQuestionData(params: QuestionGenerationParams): Promise<QuestionGenerationResult> {
-    const result = await this.execute(params);
+    const result = await this.execute(params, new AbortController().signal);
     return result.questionData;
   }
 

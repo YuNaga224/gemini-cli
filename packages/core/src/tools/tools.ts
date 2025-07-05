@@ -71,6 +71,16 @@ export interface Tool<
   ): Promise<ToolCallConfirmationDetails | false>;
 
   /**
+   * Determines if the tool should prompt user for input (e.g., questions) before execution
+   * @param params Parameters for the tool execution
+   * @returns Question prompt details or false if no user prompt needed
+   */
+  shouldPromptUser?(
+    params: TParams,
+    abortSignal: AbortSignal,
+  ): Promise<ToolCallPromptDetails | false>;
+
+  /**
    * Executes the tool with the given parameters
    * @param params Parameters for the tool execution
    * @returns Result of the tool execution
@@ -155,6 +165,21 @@ export abstract class BaseTool<
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     abortSignal: AbortSignal,
   ): Promise<ToolCallConfirmationDetails | false> {
+    return Promise.resolve(false);
+  }
+
+  /**
+   * Determines if the tool should prompt user for input (e.g., questions) before execution
+   * Default implementation returns false - override in derived classes that need user prompts
+   * @param params Parameters for the tool execution
+   * @returns Question prompt details or false if no user prompt needed
+   */
+  shouldPromptUser(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    params: TParams,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    abortSignal: AbortSignal,
+  ): Promise<ToolCallPromptDetails | false> {
     return Promise.resolve(false);
   }
 
@@ -291,11 +316,26 @@ export interface ToolInfoConfirmationDetails {
   urls?: string[];
 }
 
+export interface ToolQuestionPromptDetails {
+  type: 'question';
+  title: string;
+  onUserResponse: (userAnswer: string) => Promise<void>;
+  uiComponents: ToolUIComponents;
+  questionData?: any; // 質問固有のデータ
+  originalParams?: any; // 元のツールパラメータ
+}
+
 export type ToolCallConfirmationDetails =
   | ToolEditConfirmationDetails
   | ToolExecuteConfirmationDetails
   | ToolMcpConfirmationDetails
   | ToolInfoConfirmationDetails;
+
+export type ToolCallPromptDetails = ToolQuestionPromptDetails;
+
+export type ToolCallInteractionDetails = 
+  | ToolCallConfirmationDetails 
+  | ToolCallPromptDetails;
 
 export enum ToolConfirmationOutcome {
   ProceedOnce = 'proceed_once',
