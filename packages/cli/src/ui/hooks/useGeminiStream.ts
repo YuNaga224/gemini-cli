@@ -51,6 +51,7 @@ import {
   TrackedCompletedToolCall,
   TrackedCancelledToolCall,
 } from './useReactToolScheduler.js';
+import type { CompletedToolCall } from '@google/gemini-cli-core';
 import { useSessionStats } from '../contexts/SessionContext.js';
 
 export function mergePartListUnions(list: PartListUnion[]): PartListUnion {
@@ -109,25 +110,27 @@ export const useGeminiStream = (
     return new GitService(config.getProjectRoot());
   }, [config]);
 
+  const handleSchedulerComplete = useCallback(
+    async (completedToolCallsFromScheduler: CompletedToolCall[]) => {
+      if (completedToolCallsFromScheduler.length > 0) {
+        addItem(
+          mapTrackedToolCallsToDisplay(
+            completedToolCallsFromScheduler as TrackedToolCall[],
+          ),
+          Date.now(),
+        );
+
+        await handleCompletedTools(
+          completedToolCallsFromScheduler as TrackedToolCall[],
+        );
+      }
+    },
+    [addItem, handleCompletedTools],
+  );
+
   const [toolCalls, scheduleToolCalls, markToolsAsSubmitted, handleUserInput] =
     useReactToolScheduler(
-      async (completedToolCallsFromScheduler) => {
-        // This onComplete is called when ALL scheduled tools for a given batch are done.
-        if (completedToolCallsFromScheduler.length > 0) {
-          // Add the final state of these tools to the history for display.
-          addItem(
-            mapTrackedToolCallsToDisplay(
-              completedToolCallsFromScheduler as TrackedToolCall[],
-            ),
-            Date.now(),
-          );
-
-          // Handle tool response submission immediately when tools complete
-          await handleCompletedTools(
-            completedToolCallsFromScheduler as TrackedToolCall[],
-          );
-        }
-      },
+      handleSchedulerComplete,
       config,
       setPendingHistoryItem,
       getPreferredEditor,
