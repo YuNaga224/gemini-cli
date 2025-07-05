@@ -760,7 +760,7 @@ ${subject}分野の理解度を評価する問題を生成してください：
 
     const finalResult: QuestionGenerationToolResult = {
       llmContent: [{ 
-        text: `User answered: "${userAnswer}"\nFeedback: ${feedback}${nextStepSuggestion}` 
+        text: `Question: ${questionData.question}\n\nUser answered: "${userAnswer}"\nFeedback: ${feedback}${nextStepSuggestion}` 
       }],
       returnDisplay: `回答: ${userAnswer}\n\n${feedback}${nextStepSuggestion}`,
       questionData: {
