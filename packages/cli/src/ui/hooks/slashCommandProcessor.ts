@@ -883,6 +883,16 @@ export const useSlashCommandProcessor = (
           setPendingCompressionItem(null);
         },
       },
+      {
+        name: 'new',
+        description: '新しい分野の学習を開始します（Sensei-AI）',
+        action: (_mainCommand, _subCommand, _args) => {
+          onDebugMessage('Starting new learning session');
+          return {
+            message: '新しい分野の学習を始めたいです。どの分野について学習したいか教えてください。'
+          };
+        },
+      },
     ];
 
     if (config?.getCheckpointingEnabled()) {

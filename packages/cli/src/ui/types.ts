@@ -7,6 +7,7 @@
 import {
   ToolCallConfirmationDetails,
   ToolResultDisplay,
+  ToolUIComponents,
 } from '@google/gemini-cli-core';
 import { CumulativeStats } from './contexts/SessionContext.js';
 
@@ -28,6 +29,7 @@ export enum ToolCallStatus {
   Pending = 'Pending',
   Canceled = 'Canceled',
   Confirming = 'Confirming',
+  AwaitingUserInput = 'awaiting_user_input',
   Executing = 'Executing',
   Success = 'Success',
   Error = 'Error',
@@ -51,6 +53,7 @@ export interface IndividualToolCallDisplay {
   status: ToolCallStatus;
   confirmationDetails: ToolCallConfirmationDetails | undefined;
   renderOutputAsMarkdown?: boolean;
+  uiComponents?: ToolUIComponents; // UIコンポーネント情報
 }
 
 export interface CompressionProps {

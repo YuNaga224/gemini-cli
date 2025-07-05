@@ -187,6 +187,26 @@ export interface ToolResult {
    * For now, we keep it as the core logic in ReadFileTool currently produces it.
    */
   returnDisplay: ToolResultDisplay;
+
+  /**
+   * Optional UI component information for tools that need interactive user input.
+   * When present, the UI should render the specified interactive components
+   * instead of just displaying the returnDisplay content.
+   */
+  uiComponents?: ToolUIComponents;
+
+  /**
+   * Indicates whether the tool is awaiting user input before completion.
+   * When true, the tool execution remains pending until user input is received.
+   */
+  awaitingUserInput?: boolean;
+
+  /**
+   * Optional callback function to handle user input for interactive tools.
+   * Called when user provides input (e.g., selects an option or enters text).
+   * Should return the final ToolResult after processing the user input.
+   */
+  onUserInput?: (input: string) => Promise<ToolResult>;
 }
 
 export type ToolResultDisplay = string | FileDiff;
@@ -194,6 +214,47 @@ export type ToolResultDisplay = string | FileDiff;
 export interface FileDiff {
   fileDiff: string;
   fileName: string;
+}
+
+/**
+ * UI component information for tools that need interactive user input
+ */
+export interface ToolUIComponents {
+  /**
+   * Type of UI component to render
+   */
+  type: 'question-selector' | 'roadmap-graph';
+  
+  /**
+   * The tool call ID associated with this UI component.
+   * Used to identify which tool should receive the user input.
+   */
+  callId?: string;
+  
+  /**
+   * The main question or prompt to display (for question-selector)
+   */
+  question?: string;
+  
+  /**
+   * Array of predefined options for the user to choose from (for question-selector)
+   */
+  options?: string[];
+  
+  /**
+   * Whether to allow custom text input in addition to predefined options (for question-selector)
+   */
+  allowCustomInput?: boolean;
+  
+  /**
+   * Placeholder text for custom input field (for question-selector)
+   */
+  placeholder?: string;
+  
+  /**
+   * Roadmap data for graph display (for roadmap-graph)
+   */
+  roadmapData?: any;
 }
 
 export interface ToolEditConfirmationDetails {

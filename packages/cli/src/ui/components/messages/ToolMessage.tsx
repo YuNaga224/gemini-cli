@@ -12,6 +12,9 @@ import { Colors } from '../../colors.js';
 import { MarkdownDisplay } from '../../utils/MarkdownDisplay.js';
 import { GeminiRespondingSpinner } from '../GeminiRespondingSpinner.js';
 import { MaxSizedBox } from '../shared/MaxSizedBox.js';
+import { OptionSelector } from '../learning/OptionSelector.js';
+import { QuestionDisplay } from '../learning/QuestionDisplay.js';
+import { LearningQuestion } from '../../types/learning.js';
 
 const STATIC_HEIGHT = 1;
 const RESERVED_LINE_COUNT = 5; // for tool name, status, padding etc.
@@ -28,6 +31,8 @@ export interface ToolMessageProps extends IndividualToolCallDisplay {
   terminalWidth: number;
   emphasis?: TextEmphasis;
   renderOutputAsMarkdown?: boolean;
+  onQuestionSelect?: (answer: string, optionIndex?: number) => void;
+  isFocused?: boolean;
 }
 
 export const ToolMessage: React.FC<ToolMessageProps> = ({
@@ -39,6 +44,9 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
   terminalWidth,
   emphasis = 'medium',
   renderOutputAsMarkdown = true,
+  uiComponents,
+  onQuestionSelect,
+  isFocused = false,
 }) => {
   const availableHeight = availableTerminalHeight
     ? Math.max(
@@ -102,6 +110,58 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
                 terminalWidth={childWidth}
               />
             )}
+          </Box>
+        </Box>
+      )}
+      
+      {/* UIコンポーネントの表示（選択肢付き質問） */}
+      {uiComponents && uiComponents.type === 'question-selector' && (
+        <Box paddingLeft={STATUS_INDICATOR_WIDTH} width="100%" marginTop={1}>
+          <Box flexDirection="column">
+            {/* 質問の表示 */}
+            <Box marginBottom={1}>
+              <Text bold color={Colors.AccentBlue}>
+                📝 {uiComponents.question || '質問'}
+              </Text>
+            </Box>
+            
+            {/* 選択肢の表示 */}
+            <OptionSelector
+              options={uiComponents.options || []}
+              onSelect={(answer, optionIndex) => {
+                if (onQuestionSelect) {
+                  onQuestionSelect(answer, optionIndex);
+                }
+              }}
+              allowCustomInput={uiComponents.allowCustomInput || false}
+              customInputPlaceholder={uiComponents.placeholder}
+              isFocused={isFocused && status === ToolCallStatus.AwaitingUserInput}
+            />
+          </Box>
+        </Box>
+      )}
+      
+      {/* ロードマップグラフの表示 */}
+      {uiComponents && uiComponents.type === 'roadmap-graph' && (
+        <Box paddingLeft={STATUS_INDICATOR_WIDTH} width="100%" marginTop={1}>
+          <Box flexDirection="column">
+            <Box marginBottom={1}>
+              <Text bold color={Colors.AccentBlue}>
+                🗺️ 学習ロードマップ
+              </Text>
+            </Box>
+            
+            {/* TODO: RoadmapDisplayコンポーネントを統合 */}
+            <Box
+              borderStyle="single"
+              borderColor={Colors.AccentBlue}
+              padding={1}
+              marginBottom={1}
+            >
+              <Text>
+                📊 グラフ形式のロードマップ表示機能は実装中です
+              </Text>
+            </Box>
           </Box>
         </Box>
       )}
